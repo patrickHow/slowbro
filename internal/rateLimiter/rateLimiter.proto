@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+option go_package = "slowbro/rateLimiter";
+
+service RateLimiter {
+    rpc CheckRateLimit(RateLimitRequest) returns (RateLimitResponse) {}
+}
+
+message RateLimitRequest {
+    string user_id = 1;
+    string service_name = 2;
+    string endpoint = 3;
+}
+
+message RateLimitResponse {
+    bool allowed = 1;
+    string error_msg = 2;
+}

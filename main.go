@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime"
 
 	pb "slowbro/internal/rateLimiter"
 
@@ -13,22 +14,32 @@ import (
 
 type rateLimiterServer struct {
 	pb.UnimplementedRateLimiterServer
-	// Other internal variables as required
+	limiter *ShardedRateLimiter
 }
 
-func (s *rateLimiterServer) CheckRateLimit(ctx context.Context, rq *pb.RateLimitRequest) (*pb.RateLimitResponse, error) {
-	// TODO skeleton code for now
+func (s *rateLimiterServer) CheckRateLimit(ctx context.Context, req *pb.RateLimitRequest) (*pb.RateLimitResponse, error) {
 
-	fmt.Println("Got request from: ", fmt.Sprintf("%s:%s:%s", rq.ServiceName, rq.Endpoint, rq.UserId))
+	allowed, err := s.limiter.CheckRateLimit(req)
+
+	// Parse out the error message - passing err.Error() directly to the response causes a segfault
+	// I guess protobuf doesn't like nil strings
+	var emsg string
+	if err != nil {
+		emsg = err.Error()
+	} else {
+		emsg = ""
+	}
 
 	return &pb.RateLimitResponse{
-		Allowed:  true,
-		ErrorMsg: "",
+		Allowed:  allowed,
+		ErrorMsg: emsg,
 	}, nil
 }
 
 func newServer() *rateLimiterServer {
-	return &rateLimiterServer{}
+	return &rateLimiterServer{
+		limiter: NewShardedRateLimiter("localhost:6379", runtime.GOMAXPROCS(0)),
+	}
 }
 
 func main() {

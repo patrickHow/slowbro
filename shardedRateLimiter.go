@@ -35,10 +35,10 @@ type rateLimiter struct {
 
 // Type to store and retrieve from data store
 type redisTokenBucket struct {
-	Tokens         float64   `redis:"tokens" mapstructure:"tokens"`
-	MaxTokens      float64   `redis:"max_tokens" mapstructure:"max_tokens"`
-	RefillRate     float64   `redis:"refill_rate" mapstructure:"refill_rate"`
-	LastRefillTime time.Time `redis:"last_refill_time" mapstructure:"last_refill_time"`
+	Tokens         float64   `redis:"tokens"`
+	MaxTokens      float64   `redis:"max_tokens"`
+	RefillRate     float64   `redis:"refill_rate"`
+	LastRefillTime time.Time `redis:"last_refill_time"`
 }
 
 func (bucket *redisTokenBucket) refillBucket() {
@@ -154,89 +154,87 @@ func (r *rateLimiter) CheckLimit(req *pb.RateLimitRequest) (bool, error) {
 			log.Printf("[WARN] Retry attempt %d for key: %s", retries, key)
 		}
 
-		err := r.client.Watch(context.Background(), func(tx *redis.Tx) error {
-			// Retrieve or create bucket
-			bucketData, err := tx.HGetAll(context.Background(), key).Result()
-
-			if err != nil {
-				log.Printf("[ERROR] Redis HGetAll failed for key: %s, error: %v", key, err)
-				return err
-			}
-
-			var bucket *redisTokenBucket
-			if len(bucketData) == 0 {
-				log.Printf("[INFO] Creating new bucket for key: %s", key)
-				bucket = &redisTokenBucket{
-					Tokens:         defaultTokensInBucket,
-					MaxTokens:      defaultTokensInBucket,
-					RefillRate:     defaultRefillRate,
-					LastRefillTime: time.Now(),
-				}
-			} else {
-				bucket, err = decodeBucket(bucketData)
-				if err != nil {
-					log.Printf("[ERROR] Failed to decode bucket for key: %s, error: %v", key, err)
-					return err
-				}
-				log.Printf("[DEBUG] Retrieved bucket for key: %s, current tokens: %.2f", key, bucket.Tokens)
-			}
-
-			// Refill tokens, storing the old token value so we can check if we need to update
-			oldTokens := bucket.Tokens
-			bucket.refillBucket()
-
-			if bucket.Tokens != oldTokens {
-				log.Printf("[DEBUG] Refilled bucket for key: %s, old tokens: %.2f, new tokens: %.2f",
-					key, oldTokens, bucket.Tokens)
-			}
-
-			// TODO make the cost part of the request package
-			limitOk := false
-			if bucket.Tokens > defaultRqCost {
-				bucket.Tokens -= defaultRqCost
-				limitOk = true
-				log.Printf("[DEBUG] Consumed %.2f tokens for key: %s, remaining: %.2f",
-					defaultRqCost, key, bucket.Tokens)
-			} else {
-				log.Printf("[INFO] Rate limit exceeded for key: %s, available tokens: %.2f",
-					key, bucket.Tokens)
-			}
-
-			// Begin transaction to update bucket in store, if required
-			// Occurs if tokens were taken or added
-			if oldTokens != bucket.Tokens {
-				_, err = tx.TxPipelined(context.Background(), func(pipe redis.Pipeliner) error {
-					return pipe.HSet(context.Background(), key, bucket.toRedisMap()).Err()
-				})
-
-				// If we pipeline fails, "refund" the request cost so we don't drain the whole bucket on a failed request
-				if err != nil {
-					log.Printf("[ERROR] Failed to update bucket for key: %s, error: %v", key, err)
-					bucket.Tokens += defaultRqCost
-				}
-			}
-
-			if limitOk {
-				return err
-			} else {
-				return fmt.Errorf("insufficient tokens")
-			}
-
-		}, key)
-
-		if err == nil {
-			return true, nil // Succsefully consumed token
-		}
-
+		success, err := r.attemptUpdate(key)
 		if err == redis.TxFailedErr {
-			// Retry transasction
 			continue
 		}
-
-		// Other error
-		return false, err
+		return success, err
 	}
 
 	log.Printf("[ERROR] Max retries exceeded for key: %s", key)
 	return false, fmt.Errorf("max retries exceeded for request")
+}
+
+func (r *rateLimiter) attemptUpdate(key string) (bool, error) {
+	var finalSuccess bool
+	var finalErr error
+
+	err := r.client.Watch(context.Background(), func(tx *redis.Tx) error {
+		// Retrieve or create bucket
+		bucketData, err := tx.HGetAll(context.Background(), key).Result()
+		if err != nil {
+			log.Printf("[ERROR] Redis HGetAll failed for key: %s, error: %v", key, err)
+			return err
+		}
+
+		var bucket *redisTokenBucket
+		if len(bucketData) == 0 {
+			log.Printf("[INFO] Creating new bucket for key: %s", key)
+			bucket = &redisTokenBucket{
+				Tokens:         defaultTokensInBucket,
+				MaxTokens:      defaultTokensInBucket,
+				RefillRate:     defaultRefillRate,
+				LastRefillTime: time.Now(),
+			}
+		} else {
+			bucket, err = decodeBucket(bucketData)
+			if err != nil {
+				log.Printf("[ERROR] Failed to decode bucket for key: %s, error: %v", key, err)
+				return err
+			}
+			log.Printf("[DEBUG] Retrieved bucket for key: %s, current tokens: %.2f", key, bucket.Tokens)
+		}
+
+		// Refill tokens
+		oldTokens := bucket.Tokens
+		bucket.refillBucket()
+
+		if bucket.Tokens != oldTokens {
+			log.Printf("[DEBUG] Refilled bucket for key: %s, old tokens: %.2f, new tokens: %.2f",
+				key, oldTokens, bucket.Tokens)
+		}
+
+		// Check if we can consume tokens
+		if bucket.Tokens < defaultRqCost {
+			log.Printf("[INFO] Rate limit exceeded for key: %s, available tokens: %.2f",
+				key, bucket.Tokens)
+			finalSuccess = false
+			finalErr = fmt.Errorf("insufficient tokens")
+			return nil // Important: Don't fail the transaction, just mark as rate limited
+		}
+
+		// Consume tokens
+		bucket.Tokens -= defaultRqCost
+		log.Printf("[DEBUG] Consumed %.2f tokens for key: %s, remaining: %.2f",
+			defaultRqCost, key, bucket.Tokens)
+
+		// Always update if we've made it this far
+		_, err = tx.TxPipelined(context.Background(), func(pipe redis.Pipeliner) error {
+			return pipe.HSet(context.Background(), key, bucket.toRedisMap()).Err()
+		})
+
+		if err != nil {
+			log.Printf("[ERROR] Failed to update bucket for key: %s, error: %v", key, err)
+			return err
+		}
+
+		finalSuccess = true
+		return nil
+	}, key)
+
+	if err != nil {
+		return false, err
+	}
+
+	return finalSuccess, finalErr
 }

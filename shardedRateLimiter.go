@@ -16,10 +16,11 @@ import (
 
 // Default values for bucket configuration
 const (
-	defaultTokensInBucket float64 = 100
-	defaultRqCost         float64 = 1.0
-	defaultRefillRate     float64 = 1.0
-	maxUpdateRetries      int     = 1000
+	defaultTokensInBucket float64       = 100
+	defaultRqCost         float64       = 1.0
+	defaultRefillRate     float64       = 1.0
+	maxUpdateRetries      int           = 1000
+	defaultKeyExpiry      time.Duration = 5 * time.Minute
 )
 
 type ShardedRateLimiter struct {
@@ -248,7 +249,12 @@ func (r *rateLimiter) attemptUpdate(key string) (bool, error) {
 
 		// Always update if we've made it this far
 		_, err = tx.TxPipelined(context.Background(), func(pipe redis.Pipeliner) error {
-			return pipe.HSet(context.Background(), key, bucket.toRedisMap()).Err()
+			err = pipe.HSet(context.Background(), key, bucket.toRedisMap()).Err()
+			if err != nil {
+				return err
+			}
+			// Set expiry for key
+			return pipe.Expire(context.TODO(), key, defaultKeyExpiry).Err()
 		})
 
 		if err != nil {

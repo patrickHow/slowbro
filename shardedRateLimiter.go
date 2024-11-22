@@ -25,6 +25,11 @@ const (
 type ShardedRateLimiter struct {
 	shards    []*rateLimiter
 	numShards uint32
+	metrics   *shardLimiterMetrics
+}
+
+type shardLimiterMetrics struct {
+	startTime time.Time
 }
 
 type rateLimiter struct {
@@ -58,6 +63,7 @@ func NewShardedRateLimiter(dbPath string, numShards int) *ShardedRateLimiter {
 	shardLimiter := ShardedRateLimiter{
 		shards:    make([]*rateLimiter, numShards),
 		numShards: uint32(numShards),
+		metrics:   &shardLimiterMetrics{startTime: time.Now()},
 	}
 
 	// TODO how many DBs can we hold in one redis instance?
@@ -74,6 +80,28 @@ func NewShardedRateLimiter(dbPath string, numShards int) *ShardedRateLimiter {
 	}
 
 	return &shardLimiter
+}
+
+func (s *ShardedRateLimiter) PrintMetrics() {
+	totalRequests := 0
+	for _, shard := range s.shards {
+		latency := 0.0
+		latencyTotal := float64(shard.metrics.AccumulatedLatency.Load())
+		requestTotal := float64(shard.metrics.RequestCount.Load())
+
+		if requestTotal > 0 {
+			latency = latencyTotal / requestTotal
+		}
+
+		log.Printf("[INFO] Shard ID: %v | Requests: %v | Average Latency %v\n",
+			shard.id,
+			int(requestTotal), // Declared as f64 above for calculation
+			latency,
+		)
+
+		totalRequests += int(requestTotal)
+	}
+	log.Printf("Total requests: %v, Uptime: %v\n", totalRequests, time.Since(s.metrics.startTime))
 }
 
 func (s *ShardedRateLimiter) getShard(key string) *rateLimiter {

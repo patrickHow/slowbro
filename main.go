@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"time"
 
 	pb "slowbro/internal/rateLimiter"
 
@@ -50,11 +51,21 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	server := newServer()
+
 	// TODO once we have actual options to configure, potentially from comand line
 	// via flags package?
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
-	pb.RegisterRateLimiterServer(grpcServer, newServer())
+	pb.RegisterRateLimiterServer(grpcServer, server)
+
+	// Spawn a background metrics process
+	go func() {
+		for {
+			time.Sleep(10 * time.Second)
+			server.limiter.PrintMetrics()
+		}
+	}()
 
 	grpcServer.Serve(lis)
 }

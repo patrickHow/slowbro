@@ -4,6 +4,7 @@ option go_package = "slowbro/rateLimiter";
 
 service RateLimiter {
     rpc CheckRateLimit(RateLimitRequest) returns (RateLimitResponse) {}
+    rpc ConfigureRateLimit(RateLimitEndpointPerUserConfig) returns (RateLimitConfigResponse) {}
 }
 
 message RateLimitRequest {
@@ -15,4 +16,13 @@ message RateLimitRequest {
 message RateLimitResponse {
     bool allowed = 1;
     string error_msg = 2;
+}
+
+message RateLimitEndpointPerUserConfig {
+    float max_tokens = 1;
+    float token_fill_rate = 2;
+}
+
+message RateLimitConfigResponse {
+    string error_msg = 1;
 }

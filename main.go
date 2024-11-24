@@ -37,6 +37,10 @@ func (s *rateLimiterServer) CheckRateLimit(ctx context.Context, req *pb.RateLimi
 	}, nil
 }
 
+func (s *rateLimiterServer) ConfigureRateLimit(ctx context.Context, req *pb.RateLimitEndpointPerUserConfig) (*pb.RateLimitConfigResponse, error) {
+
+}
+
 func newServer() *rateLimiterServer {
 	return &rateLimiterServer{
 		limiter: NewShardedRateLimiter("localhost:6379", runtime.GOMAXPROCS(0)),

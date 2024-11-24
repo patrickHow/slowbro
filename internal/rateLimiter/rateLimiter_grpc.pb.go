@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RateLimiter_CheckRateLimit_FullMethodName = "/RateLimiter/CheckRateLimit"
+	RateLimiter_CheckRateLimit_FullMethodName     = "/RateLimiter/CheckRateLimit"
+	RateLimiter_ConfigureRateLimit_FullMethodName = "/RateLimiter/ConfigureRateLimit"
 )
 
 // RateLimiterClient is the client API for RateLimiter service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RateLimiterClient interface {
 	CheckRateLimit(ctx context.Context, in *RateLimitRequest, opts ...grpc.CallOption) (*RateLimitResponse, error)
+	ConfigureRateLimit(ctx context.Context, in *RateLimitEndpointPerUserConfig, opts ...grpc.CallOption) (*RateLimitConfigResponse, error)
 }
 
 type rateLimiterClient struct {
@@ -47,11 +49,22 @@ func (c *rateLimiterClient) CheckRateLimit(ctx context.Context, in *RateLimitReq
 	return out, nil
 }
 
+func (c *rateLimiterClient) ConfigureRateLimit(ctx context.Context, in *RateLimitEndpointPerUserConfig, opts ...grpc.CallOption) (*RateLimitConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RateLimitConfigResponse)
+	err := c.cc.Invoke(ctx, RateLimiter_ConfigureRateLimit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RateLimiterServer is the server API for RateLimiter service.
 // All implementations must embed UnimplementedRateLimiterServer
 // for forward compatibility.
 type RateLimiterServer interface {
 	CheckRateLimit(context.Context, *RateLimitRequest) (*RateLimitResponse, error)
+	ConfigureRateLimit(context.Context, *RateLimitEndpointPerUserConfig) (*RateLimitConfigResponse, error)
 	mustEmbedUnimplementedRateLimiterServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedRateLimiterServer struct{}
 
 func (UnimplementedRateLimiterServer) CheckRateLimit(context.Context, *RateLimitRequest) (*RateLimitResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckRateLimit not implemented")
+}
+func (UnimplementedRateLimiterServer) ConfigureRateLimit(context.Context, *RateLimitEndpointPerUserConfig) (*RateLimitConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfigureRateLimit not implemented")
 }
 func (UnimplementedRateLimiterServer) mustEmbedUnimplementedRateLimiterServer() {}
 func (UnimplementedRateLimiterServer) testEmbeddedByValue()                     {}
@@ -104,6 +120,24 @@ func _RateLimiter_CheckRateLimit_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RateLimiter_ConfigureRateLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RateLimitEndpointPerUserConfig)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RateLimiterServer).ConfigureRateLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RateLimiter_ConfigureRateLimit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RateLimiterServer).ConfigureRateLimit(ctx, req.(*RateLimitEndpointPerUserConfig))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RateLimiter_ServiceDesc is the grpc.ServiceDesc for RateLimiter service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var RateLimiter_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CheckRateLimit",
 			Handler:    _RateLimiter_CheckRateLimit_Handler,
+		},
+		{
+			MethodName: "ConfigureRateLimit",
+			Handler:    _RateLimiter_ConfigureRateLimit_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

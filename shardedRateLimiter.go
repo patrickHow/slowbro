@@ -115,7 +115,7 @@ func (s *ShardedRateLimiter) getShard(key string) *rateLimiter {
 }
 
 func getKeyFromRequest(req *pb.RateLimitRequest) string {
-	return fmt.Sprintf("%s:%s:%s", req.ServiceName, req.Endpoint, req.UserId)
+	return fmt.Sprintf("%v:%v:%v", req.ServiceName, req.Endpoint, req.UserId)
 }
 
 func decodeBucket(data map[string]string) (*redisTokenBucket, error) {

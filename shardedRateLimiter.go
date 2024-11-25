@@ -254,7 +254,7 @@ func (r *rateLimiter) attemptUpdate(key string) (bool, error) {
 				return err
 			}
 			// Set expiry for key
-			return pipe.Expire(context.TODO(), key, defaultKeyExpiry).Err()
+			return pipe.Expire(context.Background(), key, defaultKeyExpiry).Err()
 		})
 
 		if err != nil {

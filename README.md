@@ -22,3 +22,17 @@ Slowbro is easy to start - currently it takes no options, but uses hardcoded loc
 - Port 6379 for Redis
 
 Both of these will be configurable at launch at some point. Once Slowbro is running, it will be ready to accept requests over gRPC.
+
+## Internals
+There are two RPCs available in slowbro currently:
+```
+    rpc CheckRateLimit(RateLimitRequest) returns (RateLimitResponse) {}
+    rpc ConfigureRateLimit(RateLimitEndpointPerUserConfig) returns (RateLimitConfigResponse) {}
+```
+
+`ConfigureRateLimit` takes a service name, endpoint, token fill rate, and token limit and sets up the configuration in a Redis instance. This configuration is propagated from the node that received the config message to other nodes via Redis' pubsub mechanism. The config message response is a message containing an error string, which will be empty if no error occured.
+
+`CheckRateLimit` accepts a user ID, service name, and endpoint. A token bucket is maintained on a per-user per-endpoint basis, with the limit for the user depending on the configuration for each endpoint. 
+
+The limit for each user:endpoint pair is stored in Redis with a key formed as `service:endpoint:user_id`. When a request is received, the request is sent to a shard based on the hash of the key. Each shard has a Redis DB to store keys. The bucket for the key is then retrieved from Redis, refilled based on the time since last update, and checked against the cost of the request. The limiter will then send back a response, containing a boolean indicating if the request can be allowed an an error message.
+

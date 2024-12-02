@@ -38,7 +38,18 @@ func (s *rateLimiterServer) CheckRateLimit(ctx context.Context, req *pb.RateLimi
 }
 
 func (s *rateLimiterServer) ConfigureRateLimit(ctx context.Context, req *pb.RateLimitEndpointPerUserConfig) (*pb.RateLimitConfigResponse, error) {
+	err := s.limiter.configStore.UpdateOrAddEndpoint(req)
 
+	var emsg string
+	if err != nil {
+		emsg = err.Error()
+	} else {
+		emsg = ""
+	}
+
+	return &pb.RateLimitConfigResponse{
+		ErrorMsg: emsg,
+	}, nil
 }
 
 func newServer() *rateLimiterServer {

@@ -24,9 +24,10 @@ const (
 )
 
 type ShardedRateLimiter struct {
-	shards    []*rateLimiter
-	numShards uint32
-	metrics   *shardLimiterMetrics
+	shards      []*rateLimiter
+	numShards   uint32
+	configStore *EndpointConfigManager
+	metrics     *shardLimiterMetrics
 }
 
 type shardLimiterMetrics struct {
@@ -67,18 +68,23 @@ func NewShardedRateLimiter(dbPath string, numShards int) *ShardedRateLimiter {
 		metrics:   &shardLimiterMetrics{startTime: time.Now()},
 	}
 
+	shardLimiter.configStore = NewEndpointConfigManager(dbPath)
+
 	// TODO how many DBs can we hold in one redis instance?
 	// Initialize each shard with its own rate limiter
 	for i := 0; i < numShards; i++ {
 		shardLimiter.shards[i] = &rateLimiter{
 			client: redis.NewClient(&redis.Options{
 				Addr: dbPath,
-				DB:   i,
+				DB:   i + 1, // 1->numShards, the config store is on db 0
 			}),
 			metrics: &shardMetrics{},
 			id:      i,
 		}
 	}
+
+	// Spawn the config update listener
+	go shardLimiter.configStore.ReceiveConfigUpdates()
 
 	return &shardLimiter
 }
